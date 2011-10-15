@@ -1,0 +1,16 @@
+Google style guides and cpplint with a few modifications for easier use on
+projects with special settings.
+
+The original files (maintained by Google) can be found here:
+http://google-styleguide.googlecode.com/svn/
+For easier tracking of changes, the repository at googlecode.com was cloned with
+history.
+
+The following modifications were done to the original files:
+
+cpplint/cpplint.py
+  - interpreter was changed from python2.4 to python2.6
+  - two now flags that control the behavior of #ifdef guards were added
+
+cpplint/cpplint_unittest.py
+  - interpreter was changed from python2.4 to python2.6
