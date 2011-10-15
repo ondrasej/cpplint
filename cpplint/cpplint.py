@@ -1,4 +1,4 @@
-#!/usr/bin/python2.4
+#!/usr/bin/python2.6
 #
 # Copyright (c) 2009 Google Inc. All rights reserved.
 #
@@ -93,6 +93,7 @@ import unicodedata
 _USAGE = """
 Syntax: cpplint.py [--verbose=#] [--output=vs7] [--filter=-x,+y,...]
                    [--counting=total|toplevel|detailed]
+                   [--project=PROJECT_NAME] [--basedir=BASE]
         <file> [file] ...
 
   The style guidelines this tries to follow are those in
@@ -139,6 +140,17 @@ Syntax: cpplint.py [--verbose=#] [--output=vs7] [--filter=-x,+y,...]
       the top-level categories like 'build' and 'whitespace' will
       also be printed. If 'detailed' is provided, then a count
       is provided for each category like 'build/class'.
+    
+    project=PROJECT_NAME
+      The name of the project that should be used at the beginning of the
+      #ifdef header guards. For example, when using --project=FooBar, the
+      file bar/baz.h will have suggested #ifdef guard FOOBAR_BAR_BAZ_H_.
+
+    basedir=BASE
+      The root directory for the source code tree. By default, this is the
+      root directory of the repository of the project.
+
+      Example: cpplint.py --basedir=src src/foo/bar.h
 """
 
 # We categorize each error message we print.  Here are the categories.
@@ -504,6 +516,11 @@ class _CppLintState(object):
     # "vs7" - format that Microsoft Visual Studio 7 can parse
     self.output_format = 'emacs'
 
+    # Project name used in header #ifdef guards
+    self.project_name = ''
+    # Base directory (used to create #ifdef header guards)
+    self.base_dir = None
+
   def SetOutputFormat(self, output_format):
     """Sets the output format for errors."""
     self.output_format = output_format
@@ -542,6 +559,17 @@ class _CppLintState(object):
       if not (filt.startswith('+') or filt.startswith('-')):
         raise ValueError('Every filter in --filters must start with + or -'
                          ' (%s does not)' % filt)
+
+  def SetProjectName(self, project_name):
+    """Sets the name of project name used in header guards."""
+    self.project_name = project_name
+
+  def SetBaseDir(self, base_dir):
+    """Sets the base directory of the project source code."""
+    if base_dir:
+      full_path = os.path.abspath(base_dir).replace('\\', '/')
+      base_dir = os.path.dirname(os.path.join(full_path, '.'))
+    self.base_dir = base_dir
 
   def ResetErrorCounts(self):
     """Sets the module's error statistic back to zero."""
@@ -592,6 +620,13 @@ def _SetCountingStyle(level):
   """Sets the module's counting options."""
   _cpplint_state.SetCountingStyle(level)
 
+def _SetProjectName(project_name):
+  """Sets the project name."""
+  _cpplint_state.SetProjectName(project_name)
+
+def _SetBaseDir(base_dir):
+  """Sets the base directory of the project."""
+  _cpplint_state.SetBaseDir(base_dir)
 
 def _Filters():
   """Returns the module's list of output filters, as a list."""
@@ -716,13 +751,16 @@ class FileInfo:
       # Not SVN? Try to find a git or hg top level directory by searching up
       # from the current path.
       root_dir = os.path.dirname(fullname)
+      base_dir = _cpplint_state.base_dir
       while (root_dir != os.path.dirname(root_dir) and
              not os.path.exists(os.path.join(root_dir, ".git")) and
-             not os.path.exists(os.path.join(root_dir, ".hg"))):
+             not os.path.exists(os.path.join(root_dir, ".hg")) and
+             not base_dir == root_dir):
         root_dir = os.path.dirname(root_dir)
 
       if (os.path.exists(os.path.join(root_dir, ".git")) or
-          os.path.exists(os.path.join(root_dir, ".hg"))):
+          os.path.exists(os.path.join(root_dir, ".hg")) or
+          base_dir == root_dir):
         prefix = os.path.commonprefix([root_dir, project_dir])
         return fullname[len(prefix) + 1:]
 
@@ -1032,7 +1070,10 @@ def GetHeaderGuardCPPVariable(filename):
   filename = re.sub(r'_flymake\.h$', '.h', filename)
 
   fileinfo = FileInfo(filename)
-  return re.sub(r'[-./\s]', '_', fileinfo.RepositoryName()).upper() + '_'
+  repository_name = fileinfo.RepositoryName()
+  if _cpplint_state.project_name <> '':
+    repository_name = _cpplint_state.project_name + '_' + repository_name
+  return re.sub(r'[-./\s]', '_', repository_name).upper() + '_'
 
 
 def CheckForHeaderGuard(filename, lines, error):
@@ -3287,7 +3328,9 @@ def ParseArguments(args):
   try:
     (opts, filenames) = getopt.getopt(args, '', ['help', 'output=', 'verbose=',
                                                  'counting=',
-                                                 'filter='])
+                                                 'filter=',
+                                                 'basedir=',
+                                                 'project='])
   except getopt.GetoptError:
     PrintUsage('Invalid arguments.')
 
@@ -3295,6 +3338,8 @@ def ParseArguments(args):
   output_format = _OutputFormat()
   filters = ''
   counting_style = ''
+  project_name = ''
+  base_dir = ''
 
   for (opt, val) in opts:
     if opt == '--help':
@@ -3313,6 +3358,10 @@ def ParseArguments(args):
       if val not in ('total', 'toplevel', 'detailed'):
         PrintUsage('Valid counting options are total, toplevel, and detailed')
       counting_style = val
+    elif opt == '--basedir':
+      base_dir = val
+    elif opt == '--project':
+      project_name = val
 
   if not filenames:
     PrintUsage('No files were specified.')
@@ -3321,6 +3370,8 @@ def ParseArguments(args):
   _SetVerboseLevel(verbosity)
   _SetFilters(filters)
   _SetCountingStyle(counting_style)
+  _SetProjectName(project_name)
+  _SetBaseDir(base_dir)
 
   return filenames
 
